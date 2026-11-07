@@ -1,3 +1,27 @@
+# Interesting Notch
+
+Interesting Notch is a macOS companion for local Codex chats, built on [Boring Notch](https://github.com/TheBoredTeam/boring.notch). A muted blue line on the right of the notch shows that the app is active. The line pulses briefly every eight seconds and stays steady when Reduce Motion is enabled.
+
+## Ask from the notch
+
+1. Sign in to Codex in the ChatGPT desktop app or through the Codex CLI.
+2. Expand the notch and select **Chats**. Use **Control–Shift–Command–4** to copy a selected area of the screen.
+3. Click the question field and paste, or select **Paste screenshot**. Add a question if you have one, then choose **Ask**. A screenshot by itself asks Codex to explain it.
+
+Every send starts its own read-only Codex chat. You can send another question while a chat is working or waiting for input. The panel shows small counts for ongoing, finished, and attention-needed chats. Select a row for its latest reply or pending question, and select **Open chat** to jump to it in the desktop app.
+
+Live updates cover chats running on the connected Codex server. When the default shared Codex socket is available, the panel also shows activity from other clients on that server. A separate desktop session appears as local history with a link to open it. Ordinary ChatGPT and cloud chats are outside this integration.
+
+## Build and settings
+
+Open `boringNotch.xcodeproj` in Xcode 26 or later and run the `boringNotch` scheme. The build product is **Interesting Notch.app**. Development builds are also available from successful [Build Interesting Notch runs](https://github.com/J030104/interesting-notch/actions/workflows/interesting-notch.yml).
+
+The **Home** and **Shelf** tabs retain the inherited controls. Settings includes the shelf and Quick Share provider (including AirDrop), calendar, media, mirror, battery and HUD options. You can turn the line off in **Appearance** and choose the default tab in **Chats**. The collapsed music activity is off by default and can be enabled in **Media**.
+
+Interesting Notch inherits Boring Notch’s GPLv3 license and third-party notices. The notes below describe the upstream app.
+
+---
+
 <h1 align="center">
   <br>
   <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>

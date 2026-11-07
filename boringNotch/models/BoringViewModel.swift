@@ -211,10 +211,12 @@ class BoringViewModel: NSObject, ObservableObject {
 
         // Set the current view to shelf if it contains files and the user enables openShelfByDefault
         // Otherwise, if the user has not enabled openLastShelfByDefault, set the view to home
-    if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
+        if Defaults[.boringShelf], Defaults[.openShelfByDefault], !ShelfStateViewModel.shared.isEmpty {
             coordinator.currentView = .shelf
-        } else if !coordinator.openLastTabByDefault {
-            coordinator.currentView = .home
+        } else if !coordinator.openLastTabByDefault
+            || (coordinator.currentView == .shelf && !Defaults[.boringShelf])
+            || (coordinator.currentView == .chats && !Defaults[.notchChats]) {
+            coordinator.currentView = coordinator.defaultView
         }
     }
 

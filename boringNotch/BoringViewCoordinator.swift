@@ -50,7 +50,11 @@ struct ExpandedItem {
 class BoringViewCoordinator: ObservableObject {
     static let shared = BoringViewCoordinator()
 
-    @Published var currentView: NotchViews = .home
+    @Published var currentView: NotchViews = Defaults[.notchChats] && Defaults[.openChatsByDefault] ? .chats : .home
+
+    var defaultView: NotchViews {
+        Defaults[.notchChats] && Defaults[.openChatsByDefault] ? .chats : .home
+    }
     @Published var helloAnimationRunning: Bool = false
     private var sneakPeekDispatch: DispatchWorkItem?
     private var expandingViewDispatch: DispatchWorkItem?
@@ -58,7 +62,7 @@ class BoringViewCoordinator: ObservableObject {
 
     @AppStorage("firstLaunch") var firstLaunch: Bool = true
     @AppStorage("showWhatsNew") var showWhatsNew: Bool = true
-    @AppStorage("musicLiveActivityEnabled") var musicLiveActivityEnabled: Bool = true
+    @AppStorage("musicLiveActivityEnabled") var musicLiveActivityEnabled: Bool = false
     @AppStorage("currentMicStatus") var currentMicStatus: Bool = true
 
     @AppStorage("alwaysShowTabs") var alwaysShowTabs: Bool = true {
@@ -66,7 +70,7 @@ class BoringViewCoordinator: ObservableObject {
             if !alwaysShowTabs {
                 openLastTabByDefault = false
                 if ShelfStateViewModel.shared.isEmpty || !Defaults[.openShelfByDefault] {
-                    currentView = .home
+                    currentView = defaultView
                 }
             }
         }
@@ -295,6 +299,6 @@ class BoringViewCoordinator: ObservableObject {
     }
     
     func showEmpty() {
-        currentView = .home
+        currentView = defaultView
     }
 }

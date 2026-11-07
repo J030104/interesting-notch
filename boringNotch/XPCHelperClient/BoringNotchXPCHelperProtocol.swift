@@ -8,7 +8,14 @@
 import Foundation
 
 /// The protocol that this service will vend as its API. This protocol will also need to be visible to the process hosting the service.
+@objc protocol CodexProcessEvents {
+    func codexOutput(_ data: Data)
+    func codexEnded()
+}
+
 @objc protocol BoringNotchXPCHelperProtocol {
+    func startCodex(with reply: @escaping (Bool, String?) -> Void)
+    func writeCodex(_ data: Data, with reply: @escaping (Bool) -> Void)
     func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void)
     func requestAccessibilityAuthorization()
     func ensureAccessibilityAuthorization(_ promptIfNeeded: Bool, with reply: @escaping (Bool) -> Void)

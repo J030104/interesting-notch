@@ -5,7 +5,9 @@ import AsyncXPCConnection
 final class XPCHelperClient: NSObject {
     nonisolated static let shared = XPCHelperClient()
     
-    private let serviceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
+    static var serviceName: String {
+        "\(Bundle.main.bundleIdentifier ?? "io.github.j030104.interesting-notch").BoringNotchXPCHelper"
+    }
     
     private var remoteService: RemoteXPCService<BoringNotchXPCHelperProtocol>?
     private var connection: NSXPCConnection?
@@ -25,7 +27,7 @@ final class XPCHelperClient: NSObject {
             return existing
         }
         
-        let conn = NSXPCConnection(serviceName: serviceName)
+        let conn = NSXPCConnection(serviceName: Self.serviceName)
         
         conn.interruptionHandler = { [weak self] in
             Task { @MainActor in

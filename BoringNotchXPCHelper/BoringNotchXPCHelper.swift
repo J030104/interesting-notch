@@ -11,6 +11,21 @@ import IOKit
 import CoreGraphics
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
+    let codex = CodexProcess()
+    weak var connection: NSXPCConnection?
+
+    @objc func startCodex(with reply: @escaping (Bool, String?) -> Void) {
+        guard let events = connection?.remoteObjectProxy as? CodexProcessEvents else {
+            reply(false, "The Codex connection is unavailable.")
+            return
+        }
+        codex.start(events: events, reply: reply)
+    }
+
+    @objc func writeCodex(_ data: Data, with reply: @escaping (Bool) -> Void) {
+        codex.write(data, reply: reply)
+    }
+
     
     @objc func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void) {
         reply(AXIsProcessTrusted())

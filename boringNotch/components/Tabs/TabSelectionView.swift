@@ -14,7 +14,8 @@ struct TabModel: Identifiable {
     let view: NotchViews
 }
 
-let tabs = [
+private let tabs = [
+    TabModel(label: "Chats", icon: "bubble.left.and.bubble.right", view: .chats),
     TabModel(label: "Home", icon: "house.fill", view: .home),
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf)
 ]
@@ -22,9 +23,16 @@ let tabs = [
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Namespace var animation
+    let showChats: Bool
+    let showShelf: Bool
+
+    private var visibleTabs: [TabModel] {
+        tabs.filter { ($0.view != .chats || showChats) && ($0.view != .shelf || showShelf) }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(tabs) { tab in
+            ForEach(visibleTabs) { tab in
                     TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
                         withAnimation(.smooth) {
                             coordinator.currentView = tab.view

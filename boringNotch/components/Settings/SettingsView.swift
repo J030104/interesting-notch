@@ -10,7 +10,6 @@ import Defaults
 import EventKit
 import KeyboardShortcuts
 import LaunchAtLogin
-import Sparkle
 import SwiftUI
 import SwiftUIIntrospect
 
@@ -18,17 +17,14 @@ struct SettingsView: View {
     @State private var selectedTab = "General"
     @State private var accentColorUpdateTrigger = UUID()
 
-    let updaterController: SPUStandardUpdaterController?
-
-    init(updaterController: SPUStandardUpdaterController? = nil) {
-        self.updaterController = updaterController
-    }
-
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedTab) {
                 NavigationLink(value: "General") {
                     Label("General", systemImage: "gear")
+                }
+                NavigationLink(value: "Chats") {
+                    Label("Chats", systemImage: "bubble.left.and.bubble.right")
                 }
                 NavigationLink(value: "Appearance") {
                     Label("Appearance", systemImage: "eye")
@@ -73,6 +69,8 @@ struct SettingsView: View {
                 switch selectedTab {
                 case "General":
                     GeneralSettings()
+                case "Chats":
+                    NotchChatSettings()
                 case "Appearance":
                     Appearance()
                 case "Media":
@@ -92,15 +90,7 @@ struct SettingsView: View {
                 case "Advanced":
                     Advanced()
                 case "About":
-                    if let controller = updaterController {
-                        About(updaterController: controller)
-                    } else {
-                        // Fallback with a default controller
-                        About(
-                            updaterController: SPUStandardUpdaterController(
-                                startingUpdater: false, updaterDelegate: nil,
-                                userDriverDelegate: nil))
-                    }
+                    About()
                 default:
                     GeneralSettings()
                 }
@@ -834,7 +824,6 @@ func lighterColor(from nsColor: NSColor, amount: CGFloat = 0.14) -> Color {
 
 struct About: View {
     @State private var showBuildNumber: Bool = false
-    let updaterController: SPUStandardUpdaterController
     @Environment(\.openWindow) var openWindow
     var body: some View {
         VStack {
@@ -865,12 +854,10 @@ struct About: View {
                     Text("Version info")
                 }
 
-                UpdaterSettingsView(updater: updaterController.updater)
-
                 HStack(spacing: 30) {
                     Spacer(minLength: 0)
                     Button {
-                        if let url = URL(string: "https://github.com/TheBoredTeam/boring.notch") {
+                        if let url = URL(string: "https://github.com/J030104/interesting-notch") {
                             NSWorkspace.shared.open(url)
                         }
                     } label: {
@@ -897,13 +884,6 @@ struct About: View {
                     .padding(.horizontal, 10)
             }
             .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .toolbar {
-            //            Button("Welcome window") {
-            //                openWindow(id: "onboarding")
-            //            }
-            //            .controlSize(.extraLarge)
-            CheckForUpdatesView(updater: updaterController.updater)
         }
         .navigationTitle("About")
     }
@@ -1387,8 +1367,8 @@ struct Appearance: View {
                     Text("Square")
                         .tag(MirrorShapeEnum.rectangle)
                 }
-                Defaults.Toggle(key: .showNotHumanFace) {
-                    Text("Show cool face animation while inactive")
+                Defaults.Toggle(key: .notchActiveIndicator) {
+                    Text("Show blue notch activity indicator")
                 }
             } header: {
                 HStack {
@@ -1796,4 +1776,26 @@ func warningBadge(_ text: String, _ description: String) -> some View {
 
 #Preview {
     HUD()
+}
+
+struct NotchChatSettings: View {
+    @Default(.notchChats) private var notchChats
+
+    var body: some View {
+        Form {
+            Section("Codex") {
+                Defaults.Toggle(key: .notchChats) {
+                    Text("Show Chats in the notch")
+                }
+                Defaults.Toggle(key: .openChatsByDefault) {
+                    Text("Open Chats by default")
+                }
+                .disabled(!notchChats)
+                Text("Sign in to Codex in the ChatGPT desktop app or the Codex CLI to send questions.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Chats")
+    }
 }

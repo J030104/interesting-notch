@@ -1,0 +1,40 @@
+name: Build Interesting Notch
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    if: github.repository == 'J030104/interesting-notch'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Build the development app
+        run: |
+          xcodebuild -version
+          xcodebuild build \
+            -project boringNotch.xcodeproj \
+            -scheme boringNotch \
+            -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/interesting-notch" \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+
+      - name: Package the app
+        run: |
+          app="$RUNNER_TEMP/interesting-notch/Build/Products/Release/Interesting Notch.app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Interesting-Notch.zip"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: Interesting-Notch
+          path: ${{ runner.temp }}/Interesting-Notch.zip

@@ -35,7 +35,17 @@ struct ContentView: View {
 
     @Default(.useMusicVisualizer) var useMusicVisualizer
 
-    @Default(.showNotHumanFace) var showNotHumanFace
+    @Default(.notchActiveIndicator) private var notchActiveIndicator
+    @Default(.notchChats) private var notchChats
+    @Default(.boringShelf) private var shelfEnabled
+
+    private var rightNotchEdge: CGFloat {
+        let screen = vm.screenUUID.flatMap { NSScreen.screen(withUUID: $0) }
+        if let screen, let rightArea = screen.auxiliaryTopRightArea {
+            return rightArea.minX - screen.frame.midX
+        }
+        return vm.closedNotchSize.width / 2
+    }
 
     // Shared interactive spring for movement/resizing to avoid conflicting animations
     private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
@@ -68,11 +78,6 @@ struct ContentView: View {
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
-        {
-            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
-        } else if !coordinator.expandingView.show && vm.notchState == .closed
-            && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
-            && !vm.hideOnClosed
         {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         }
@@ -161,6 +166,7 @@ struct ContentView: View {
                         }
                     }
                     .onChange(of: vm.notchState) { _, newState in
+                        relinquishChatFocusIfNeeded()
                         if newState == .closed && isHovering {
                             withAnimation {
                                 isHovering = false
@@ -204,6 +210,25 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        .overlay(alignment: .top) {
+            if notchActiveIndicator, vm.notchState == .closed, !vm.hideOnClosed,
+               vm.effectiveClosedNotchHeight >= 12 {
+                NotchActiveIndicator()
+                    .offset(x: rightNotchEdge + 2, y: (vm.effectiveClosedNotchHeight - 12) / 2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: coordinator.currentView) { relinquishChatFocusIfNeeded() }
+        .onChange(of: notchChats) {
+            if !notchChats, coordinator.currentView == .chats {
+                coordinator.currentView = .home
+            }
+        }
+        .onChange(of: shelfEnabled) {
+            if !shelfEnabled, coordinator.currentView == .shelf {
+                coordinator.currentView = coordinator.defaultView
+            }
+        }
         .compositingGroup()
         .scaleEffect(
             x: gestureScale,
@@ -290,8 +315,6 @@ struct ContentView: View {
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
-                      } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
-                          BoringFaceAnimation()
                        } else if vm.notchState == .open {
                            BoringHeader()
                                .frame(height: max(24, vm.effectiveClosedNotchHeight))
@@ -345,6 +368,8 @@ struct ContentView: View {
             if vm.notchState == .open {
                 VStack {
                     switch coordinator.currentView {
+                    case .chats:
+                        NotchChatView()
                     case .home:
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
@@ -361,28 +386,16 @@ struct ContentView: View {
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
             }
         }
-        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting))
+        .conditionalModifier(shelfEnabled) { view in
+            view.onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data],
+                        delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting))
+        }
     }
 
-    @ViewBuilder
-    func BoringFaceAnimation() -> some View {
-        HStack {
-            HStack {
-                Rectangle()
-                    .fill(.clear)
-                    .frame(
-                        width: max(0, vm.effectiveClosedNotchHeight - 12),
-                        height: max(0, vm.effectiveClosedNotchHeight - 12)
-                    )
-                Rectangle()
-                    .fill(.black)
-                    .frame(width: vm.closedNotchSize.width - 20)
-                MinimalFaceFeatures()
-            }
-        }.frame(
-            height: vm.effectiveClosedNotchHeight,
-            alignment: .center
-        )
+    private func relinquishChatFocusIfNeeded() {
+        if let window = NSApp.keyWindow as? BoringNotchSkyLightWindow, !window.canBecomeKey {
+            window.resignKey()
+        }
     }
 
     @ViewBuilder
