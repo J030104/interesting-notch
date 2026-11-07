@@ -7,6 +7,8 @@ final class CodexProcess {
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
+    private var webSocket: CodexWebSocket?
+    private var startReply: ((Bool, String?) -> Void)?
 
     func start(events: CodexProcessEvents, reply: @escaping (Bool, String?) -> Void) {
         queue.async {
@@ -60,15 +62,60 @@ final class CodexProcess {
                 let bytes = handle.availableData
                 self?.queue.async { [weak self] in
                     guard let self, self.output === handle else { return }
-                    if bytes.isEmpty {
-                        self.close()
-                        events.codexEnded()
-                    } else {
-                        events.codexOutput(bytes)
-                    }
+                    self.receive(bytes, events: events)
                 }
             }
-            reply(shared, nil)
+            if shared {
+                let webSocket = CodexWebSocket()
+                self.webSocket = webSocket
+                self.startReply = reply
+                do {
+                    try self.input?.write(contentsOf: webSocket.handshake)
+                } catch {
+                    self.close()
+                    return
+                }
+                self.queue.asyncAfter(deadline: .now() + 10) { [weak self, weak process] in
+                    guard let self, self.process === process, self.startReply != nil else { return }
+                    self.close()
+                }
+            } else {
+                reply(false, nil)
+            }
+        }
+    }
+
+    private func receive(_ bytes: Data, events: CodexProcessEvents) {
+        if bytes.isEmpty {
+            close()
+            events.codexEnded()
+            return
+        }
+        guard webSocket != nil else {
+            events.codexOutput(bytes)
+            return
+        }
+        do {
+            for event in try webSocket?.receive(bytes) ?? [] {
+                switch event {
+                case .connected:
+                    let reply = startReply
+                    startReply = nil
+                    reply?(true, nil)
+                case .message(var data):
+                    data.append(0x0A)
+                    events.codexOutput(data)
+                case .ping(let payload):
+                    try input?.write(contentsOf: CodexWebSocket.frame(payload, opcode: 10))
+                case .closed:
+                    close()
+                    events.codexEnded()
+                    return
+                }
+            }
+        } catch {
+            close()
+            events.codexEnded()
         }
     }
 
@@ -79,7 +126,8 @@ final class CodexProcess {
                 return
             }
             do {
-                try input.write(contentsOf: data)
+                let payload = self.webSocket == nil ? data : CodexWebSocket.frame(Data(data.dropLast()))
+                try input.write(contentsOf: payload)
                 reply(true)
             } catch {
                 reply(false)
@@ -92,6 +140,10 @@ final class CodexProcess {
     }
 
     private func close() {
+        let reply = startReply
+        startReply = nil
+        reply?(false, "Couldn’t connect to the shared Codex server.")
+        webSocket = nil
         output?.readabilityHandler = nil
         try? input?.close()
         try? output?.close()

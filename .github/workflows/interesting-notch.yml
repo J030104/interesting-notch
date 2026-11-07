@@ -26,7 +26,7 @@ jobs:
             -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/interesting-notch" \
             -destination 'generic/platform=macOS' \
-            CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+            CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO
 
       - name: Package the app
         run: |
