@@ -369,7 +369,11 @@ struct ContentView: View {
                 VStack {
                     switch coordinator.currentView {
                     case .chats:
-                        NotchChatView()
+                        if vm.isScreenLocked {
+                            NotchHomeView(albumArtNamespace: albumArtNamespace)
+                        } else {
+                            NotchChatView()
+                        }
                     case .home:
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:

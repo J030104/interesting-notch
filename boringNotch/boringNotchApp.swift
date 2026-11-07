@@ -79,6 +79,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenLocked(_ notification: Notification) {
         isScreenLocked = true
+        vm.isScreenLocked = true
+        viewModels.values.forEach { $0.isScreenLocked = true }
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()
         } else {
@@ -89,6 +91,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenUnlocked(_ notification: Notification) {
         isScreenLocked = false
+        vm.isScreenLocked = false
+        viewModels.values.forEach { $0.isScreenLocked = false }
         if !Defaults[.showOnLockScreen] {
             adjustWindowPosition(changeAlpha: true)
         } else {
@@ -225,6 +229,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let window = BoringNotchSkyLightWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)
         
+        viewModel.isScreenLocked = isScreenLocked
         window.allowsChatKeyboardFocus = { [weak viewModel] in
             viewModel?.notchState == .open && BoringViewCoordinator.shared.currentView == .chats
         }

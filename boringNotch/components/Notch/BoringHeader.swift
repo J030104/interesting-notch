@@ -19,8 +19,9 @@ struct BoringHeader: View {
         HStack(spacing: 0) {
             HStack {
                 let showShelf = shelfEnabled && (!tvm.isEmpty || coordinator.alwaysShowTabs || coordinator.currentView == .shelf)
-                if notchChats || showShelf {
-                    TabSelectionView(showChats: notchChats, showShelf: showShelf)
+                let showChats = notchChats && !vm.isScreenLocked
+                if showChats || showShelf {
+                    TabSelectionView(showChats: showChats, showShelf: showShelf)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
