@@ -12,6 +12,10 @@ Every send starts its own read-only Codex chat. You can send another question wh
 
 Live updates cover chats running on the connected Codex server. When the default shared Codex socket is available, the panel also shows activity from other clients on that server. A separate desktop session appears as local history with a link to open it. Ordinary ChatGPT and cloud chats are outside this integration.
 
+### Shared Codex session
+
+The current macOS ChatGPT desktop app has an opt-in local daemon mode. When your current work is finished, quit ChatGPT, start the daemon with `codex app-server daemon start`, and launch ChatGPT with `open --env CODEX_APP_SERVER_USE_LOCAL_DAEMON=1 -a ChatGPT`. Open or reconnect Interesting Notch after the daemon starts. The panel shows **Shared Codex** when it connects to that daemon. This mode uses an experimental desktop launch setting.
+
 ## Build and settings
 
 Open `boringNotch.xcodeproj` in Xcode 26 or later and run the `boringNotch` scheme. The build product is **Interesting Notch.app**. Development builds are also available from successful [Build Interesting Notch runs](https://github.com/J030104/interesting-notch/actions/workflows/interesting-notch.yml).

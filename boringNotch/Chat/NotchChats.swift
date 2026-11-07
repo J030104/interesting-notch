@@ -59,6 +59,7 @@ final class NotchChats: ObservableObject {
     private lazy var outcomes = UserDefaults.standard.dictionary(forKey: outcomesKey) as? [String: String] ?? [:]
     private var managedThreads: Set<String> = []
     private var sendingThreads: Set<String> = []
+    private var startedTurns: Set<String> = []
     private var isRefreshing = false
 
     private init() {
@@ -67,7 +68,11 @@ final class NotchChats: ObservableObject {
     }
 
     var orderedChats: [Chat] {
-        chats.values.sorted { $0.updatedAt > $1.updatedAt }
+        let order: [Status] = [.attention, .running, .done, .history]
+        let ordered = order.flatMap { status in
+            chats.values.filter { $0.status == status }.sorted { $0.updatedAt > $1.updatedAt }
+        }
+        return ordered
     }
 
     func count(_ status: Status) -> Int {
@@ -98,24 +103,27 @@ final class NotchChats: ObservableObject {
                 "limit": 40, "sortKey": "updated_at",
                 "sourceKinds": ["appServer", "cli", "vscode", "exec", "unknown"]
             ])
+            var listed: Set<String> = []
             for thread in result["data"] as? [CodexJSON] ?? [] {
                 guard let id = thread["id"] as? String else { continue }
+                listed.insert(id)
                 let name = (thread["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let preview = thread["preview"] as? String ?? ""
                 let title = (name?.isEmpty == false ? name : nil) ?? (preview.isEmpty ? "Untitled chat" : preview)
                 let time = thread["updatedAt"] as? TimeInterval ?? 0
                 if chats[id] == nil {
-                    chats[id] = Chat(id: id, title: title, status: savedStatus(id), updatedAt: time)
+                    chats[id] = Chat(id: id, title: String(title.prefix(160)), status: savedStatus(id), updatedAt: time)
                 } else if !preview.isEmpty || name?.isEmpty == false {
-                    chats[id]?.title = title
+                    chats[id]?.title = String(title.prefix(160))
                 }
                 if let status = thread["status"] as? CodexJSON {
                     applyRuntimeStatus(status, to: id)
                 }
             }
             if sharedServer {
-                try await includeLoadedChats()
+                try await includeLoadedChats(excluding: listed)
             }
+            connectionError = nil
         } catch {
             if isConnected { connectionError = error.localizedDescription }
         }
@@ -137,6 +145,7 @@ final class NotchChats: ObservableObject {
 
         Task {
             var chatID = pendingID
+            defer { startedTurns.remove(chatID) }
             do {
                 let result = try await connection.request("thread/start", [
                     "approvalPolicy": "on-request", "sandbox": "read-only", "serviceName": "interesting_notch"
@@ -147,7 +156,9 @@ final class NotchChats: ObservableObject {
                 chatID = id
                 managedThreads.insert(id)
                 sendingThreads.insert(id)
-                defer { sendingThreads.remove(id) }
+                defer {
+                    sendingThreads.remove(id)
+                }
                 chats[pendingID] = nil
                 chats[id] = Chat(id: id, title: title, status: .running, updatedAt: now)
                 var input: [CodexJSON] = [["type": "text", "text": draft.prompt]]
@@ -156,7 +167,7 @@ final class NotchChats: ObservableObject {
                 }
                 _ = try await connection.request("turn/start", ["threadId": id, "input": input])
             } catch {
-                guard chats[chatID]?.status != .done else { return }
+                guard !startedTurns.contains(chatID) else { return }
                 failedDrafts[chatID] = draft
                 chats[chatID]?.status = .attention
                 chats[chatID]?.detail = error.localizedDescription
@@ -201,14 +212,22 @@ final class NotchChats: ObservableObject {
         requests.removeAll { $0.id == request.id }
     }
 
-    private func includeLoadedChats() async throws {
+    private func includeLoadedChats(excluding listed: Set<String>) async throws {
         let result = try await connection.request("thread/loaded/list")
-        for id in result["data"] as? [String] ?? [] where chats[id] == nil {
+        let loaded = Set(result["data"] as? [String] ?? [])
+        for id in loaded.subtracting(listed) {
             let value = try await connection.request("thread/read", ["threadId": id])
             guard let thread = value["thread"] as? CodexJSON else { continue }
-            let title = thread["name"] as? String ?? thread["preview"] as? String ?? "Untitled chat"
-            chats[id] = Chat(id: id, title: title, status: savedStatus(id), updatedAt: thread["updatedAt"] as? TimeInterval ?? 0)
+            if chats[id] == nil {
+                let title = thread["name"] as? String ?? thread["preview"] as? String ?? "Untitled chat"
+                chats[id] = Chat(id: id, title: String(title.prefix(160)), status: savedStatus(id), updatedAt: thread["updatedAt"] as? TimeInterval ?? 0)
+            }
             if let status = thread["status"] as? CodexJSON { applyRuntimeStatus(status, to: id) }
+        }
+        for id in Set(chats.keys).subtracting(loaded).subtracting(listed) {
+            if chats[id]?.status == .running || chats[id]?.status == .attention {
+                applyRuntimeStatus(["type": "notLoaded"], to: id)
+            }
         }
     }
 
@@ -249,9 +268,11 @@ final class NotchChats: ObservableObject {
         case "thread/status/changed":
             if let status = params["status"] as? CodexJSON { applyRuntimeStatus(status, to: id) }
         case "turn/started":
+            if sendingThreads.contains(id) { startedTurns.insert(id) }
             chats[id]?.status = .running
         case "turn/completed":
             guard chats[id] != nil, let turn = params["turn"] as? CodexJSON else { return }
+            if sendingThreads.contains(id) { startedTurns.insert(id) }
             let status: Status = turn["status"] as? String == "completed" ? .done : .attention
             chats[id]?.status = status
             chats[id]?.updatedAt = Date().timeIntervalSince1970
@@ -323,6 +344,7 @@ final class NotchChats: ObservableObject {
         isConnected = false
         connectionError = message
         requests.removeAll()
+        managedThreads.removeAll()
         for id in Array(chats.keys) where chats[id]?.status == .running || chats[id]?.status == .attention {
             if failedDrafts[id] == nil {
                 chats[id]?.status = .history

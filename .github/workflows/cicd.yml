@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'TheBoredTeam/boring.notch'
     name: Build Boring Notch
     strategy:
       matrix:

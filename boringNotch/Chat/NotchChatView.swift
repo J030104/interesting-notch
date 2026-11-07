@@ -262,14 +262,15 @@ struct NotchChatView: View {
     }
 
     private func pasteImage(_ pasteboard: NSPasteboard) -> Bool {
-        guard let data = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) else {
+        let png = pasteboard.data(forType: .png)
+        guard let data = png ?? pasteboard.data(forType: .tiff) else {
             pasteError = "Copy a screenshot first with ⌃⇧⌘4."
             return false
         }
         pasteError = nil
         let maxBytes = 6 * 1024 * 1024
-        if pasteboard.availableType(from: [.png]) != nil, data.count <= maxBytes {
-            model.screenshot = data
+        if let png, png.count <= maxBytes {
+            model.screenshot = png
             return true
         }
         if let source = CGImageSourceCreateWithData(data as CFData, nil) {
@@ -350,6 +351,7 @@ private struct ChatPromptField: NSViewRepresentable {
         editor.font = .systemFont(ofSize: 12)
         editor.textContainerInset = NSSize(width: 0, height: 3)
         editor.isVerticallyResizable = true
+        editor.minSize = NSSize(width: 0, height: 24)
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
         editor.setAccessibilityLabel("Codex question")

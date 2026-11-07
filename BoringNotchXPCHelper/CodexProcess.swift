@@ -27,7 +27,7 @@ final class CodexProcess {
             }
 
             let home = files.homeDirectoryForCurrentUser
-            let socket = home.appending(path: ".codex/app-server-control/app-server.sock")
+            let socket = home.appending(path: ".codex/app-server-control/app-server-control.sock")
             let socketType = try? files.attributesOfItem(atPath: socket.path)[.type] as? FileAttributeType
             let shared = socketType == .typeSocket
 
