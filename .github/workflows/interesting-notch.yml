@@ -17,6 +17,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test file attachments
+        run: |
+          swiftc \
+            boringNotch/Chat/NotchAttachment.swift \
+            boringNotch/Chat/NotchScreenshot.swift \
+            boringNotch/Chat/NotchComposerInput.swift \
+            .github/scripts/tests/NotchAttachmentsSmoke.swift \
+            -o "$RUNNER_TEMP/notch-attachments-smoke"
+          "$RUNNER_TEMP/notch-attachments-smoke"
+
       - name: Build the development app
         run: |
           xcodebuild -version
@@ -26,12 +36,13 @@ jobs:
             -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/interesting-notch" \
             -destination 'generic/platform=macOS' \
-            CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO
+            CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO \
+            INTERESTING_NOTCH_SOURCE_REVISION="$GITHUB_SHA"
 
       - name: Package the app
         run: |
           app="$RUNNER_TEMP/interesting-notch/Build/Products/Release/Interesting Notch.app"
-          codesign --verify --deep --strict "$app"
+          bash scripts/interesting-notch-build.sh verify "$app" "$GITHUB_SHA"
           ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Interesting-Notch.zip"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

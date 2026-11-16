@@ -135,8 +135,15 @@ final class CodexProcess {
         }
     }
 
-    func stop() {
-        queue.async { self.close() }
+    func stop(reply: (() -> Void)? = nil) {
+        queue.async {
+            let process = self.process
+            self.close()
+            if let reply {
+                process?.waitUntilExit()
+                reply()
+            }
+        }
     }
 
     private func close() {

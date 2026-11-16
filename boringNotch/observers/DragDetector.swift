@@ -15,7 +15,7 @@ final class DragDetector {
     typealias VoidCallback = () -> Void
     typealias PositionCallback = (_ globalPoint: CGPoint) -> Void
 
-    var onDragEntersNotchRegion: VoidCallback?
+    var onDragEntersNotchRegion: ((_ includesFile: Bool) -> Void)?
     var onDragExitsNotchRegion: VoidCallback?
     var onDragMove: PositionCallback?
 
@@ -38,14 +38,21 @@ final class DragDetector {
 
     // MARK: - Private Helpers
     
-    /// Checks if the drag pasteboard contains valid content types that can be dropped on the shelf
+    static let fileTypes: [UTType] = [.fileURL, .image]
+
+    private var includesFile: Bool {
+        dragPasteboard.types?.contains { type in
+            guard let contentType = UTType(type.rawValue) else { return false }
+            return Self.fileTypes.contains { contentType.conforms(to: $0) }
+        } ?? false
+    }
+
     private func hasValidDragContent() -> Bool {
         let validTypes: [NSPasteboard.PasteboardType] = [
-            .fileURL,
             NSPasteboard.PasteboardType(UTType.url.identifier),
             .string
         ]
-        return dragPasteboard.types?.contains(where: validTypes.contains) ?? false
+        return includesFile || (dragPasteboard.types?.contains(where: validTypes.contains) ?? false)
     }
 
     func startMonitoring() {
@@ -81,7 +88,7 @@ final class DragDetector {
                 let containsMouse = self.notchRegion.contains(mouseLocation)
                 if containsMouse && !self.hasEnteredNotchRegion {
                     self.hasEnteredNotchRegion = true
-                    self.onDragEntersNotchRegion?()
+                    self.onDragEntersNotchRegion?(self.includesFile)
                 } else if !containsMouse && self.hasEnteredNotchRegion {
                     self.hasEnteredNotchRegion = false
                     self.onDragExitsNotchRegion?()

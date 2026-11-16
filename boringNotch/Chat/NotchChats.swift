@@ -23,8 +23,36 @@ final class NotchChats: ObservableObject {
     }
 
     struct Draft {
-        let prompt: String
-        let image: Data?
+        let input: NotchComposerInput
+        let threadID: String?
+        let model: String?
+        let effort: String?
+        let serviceTier: String?
+    }
+
+    struct Model: Identifiable {
+        let id: String
+        let name: String
+        let isDefault: Bool
+        let efforts: [String]
+        let defaultEffort: String?
+        let supportsImages: Bool
+        let fastTier: String?
+        let fastDescription: String?
+
+        init?(_ value: CodexJSON) {
+            guard let id = value["model"] as? String, value["hidden"] as? Bool != true else { return nil }
+            self.id = id
+            name = value["displayName"] as? String ?? id
+            isDefault = value["isDefault"] as? Bool ?? false
+            efforts = (value["supportedReasoningEfforts"] as? [CodexJSON] ?? []).compactMap { $0["reasoningEffort"] as? String }
+            defaultEffort = value["defaultReasoningEffort"] as? String
+            supportsImages = (value["inputModalities"] as? [String])?.contains("image") ?? true
+            let fast = (value["serviceTiers"] as? [CodexJSON])?.first { $0["name"] as? String == "Fast" }
+            let legacyFast = (value["additionalSpeedTiers"] as? [String])?.contains("fast") == true
+            fastTier = (fast?["id"] as? String) ?? (legacyFast ? "priority" : nil)
+            fastDescription = fast?["description"] as? String
+        }
     }
 
     struct Question: Identifiable {
@@ -51,19 +79,31 @@ final class NotchChats: ObservableObject {
     @Published private(set) var isConnecting = false
     @Published private(set) var sharedServer = false
     @Published private(set) var connectionError: String?
-    @Published var prompt = ""
-    @Published var screenshot: Data?
+    @Published private(set) var models: [Model] = []
+    @Published private(set) var modelID: String?
+    @Published var effort: String?
+    @Published var fastMode = false
+    @Published var newInput = NotchComposerInput()
+    @Published var replyInputs: [String: NotchComposerInput] = [:]
+
+    let chatCompleted = PassthroughSubject<Void, Never>()
 
     private let connection = CodexConnection()
     private let outcomesKey = "interestingNotch.codex.outcomes"
+    private let clearedOutcome = "cleared"
     private lazy var outcomes = UserDefaults.standard.dictionary(forKey: outcomesKey) as? [String: String] ?? [:]
     private var managedThreads: Set<String> = []
     private var sendingThreads: Set<String> = []
     private var startedTurns: Set<String> = []
+    private var activeTurns: Set<String> = []
+    private var privateWriters: [String: CodexConnection] = [:]
+    @Published private var releases: [String: Task<Void, Never>] = [:]
     private var isRefreshing = false
 
     private init() {
-        connection.onMessage = { [weak self] in self?.receive($0) }
+        connection.onMessage = { [weak self, weak connection] message in
+            if let connection { self?.receive(message, from: connection) }
+        }
         connection.onDisconnect = { [weak self] in self?.connectionLost($0) }
     }
 
@@ -79,6 +119,32 @@ final class NotchChats: ObservableObject {
         chats.values.count(where: { $0.status == status })
     }
 
+    private var clearableChatIDs: [String] {
+        outcomes.keys.filter { id in
+            outcomes[id] == Status.done.rawValue && (chats[id]?.status ?? .done) == .done
+        }
+    }
+
+    var hasFinishedNotchChats: Bool { !clearableChatIDs.isEmpty }
+
+    func clearFinishedChats() {
+        for id in clearableChatIDs {
+            outcomes[id] = clearedOutcome
+            chats[id]?.status = .history
+        }
+        UserDefaults.standard.set(outcomes, forKey: outcomesKey)
+    }
+
+    var selectedModel: Model? {
+        models.first { $0.id == modelID } ?? models.first(where: \.isDefault) ?? models.first
+    }
+
+    func selectModel(_ id: String?) {
+        modelID = models.contains { $0.id == id } ? id : nil
+        if let effort, selectedModel?.efforts.contains(effort) != true { self.effort = nil }
+        if selectedModel?.fastTier == nil { fastMode = false }
+    }
+
     func connect() async {
         guard !isConnected, !isConnecting else { return }
         isConnecting = true
@@ -87,10 +153,29 @@ final class NotchChats: ObservableObject {
         do {
             sharedServer = try await connection.connect()
             isConnected = true
+            await loadModels()
             await refresh()
         } catch {
             connection.close()
             connectionLost(error.localizedDescription)
+        }
+    }
+
+    private func loadModels() async {
+        do {
+            var catalog: [Model] = []
+            var cursor: String?
+            repeat {
+                let params: CodexJSON = cursor.map { ["cursor": $0] } ?? [:]
+                let result = try await connection.request("model/list", params)
+                catalog += (result["data"] as? [CodexJSON] ?? []).compactMap(Model.init)
+                cursor = result["nextCursor"] as? String
+            } while cursor != nil
+            models = catalog
+            selectModel(modelID)
+        } catch {
+            models = []
+            selectModel(nil)
         }
     }
 
@@ -129,60 +214,114 @@ final class NotchChats: ObservableObject {
         }
     }
 
-    func submit() {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isConnected, !trimmed.isEmpty || screenshot != nil else { return }
+    func canSubmit(_ input: NotchComposerInput, in id: String? = nil) -> Bool {
+        guard isConnected, !isConnecting, !input.isEmpty,
+              input.screenshots.isEmpty || selectedModel?.supportsImages != false else { return false }
+        guard let id else { return true }
+        return chats[id]?.canOpenInDesktop == true
+            && !sendingThreads.contains(id) && !activeTurns.contains(id) && releases[id] == nil
+            && chats[id]?.status != .running && requests.allSatisfy { $0.threadID != id } && failedDrafts[id] == nil
+    }
+
+    func submit(in threadID: String? = nil) {
+        let input = threadID.map { replyInputs[$0, default: NotchComposerInput()] } ?? newInput
+        guard canSubmit(input, in: threadID) else { return }
+        let fastTier = fastMode ? selectedModel?.fastTier : nil
+        let requestedModel = modelID ?? ((effort != nil || fastTier != nil) ? selectedModel?.id : nil)
         let draft = Draft(
-            prompt: trimmed.isEmpty ? "Please explain this screenshot." : trimmed,
-            image: screenshot
+            input: input,
+            threadID: threadID,
+            model: requestedModel,
+            effort: effort ?? (requestedModel == nil ? nil : selectedModel?.defaultEffort),
+            serviceTier: fastTier ?? (selectedModel?.fastTier == nil ? nil : "default")
         )
-        let pendingID = UUID().uuidString
+        let pendingID = threadID ?? UUID().uuidString
         let now = Date().timeIntervalSince1970
-        let title = String(draft.prompt.prefix(160))
-        chats[pendingID] = Chat(id: pendingID, title: title, status: .running, updatedAt: now, canOpenInDesktop: false)
-        prompt = ""
-        screenshot = nil
+        let title = String(input.question.prefix(160))
+        if let threadID {
+            replyInputs[threadID] = nil
+            chats[threadID]?.status = .running
+        } else {
+            chats[pendingID] = Chat(id: pendingID, title: title, status: .running, updatedAt: now, canOpenInDesktop: false)
+            newInput = NotchComposerInput()
+        }
+        sendingThreads.insert(pendingID)
 
         Task {
             var chatID = pendingID
-            defer { startedTurns.remove(chatID) }
+            defer {
+                sendingThreads.remove(pendingID)
+                sendingThreads.remove(chatID)
+                startedTurns.remove(chatID)
+                releaseIdleChat(chatID)
+            }
             do {
-                let result = try await connection.request("thread/start", [
-                    "approvalPolicy": "on-request", "sandbox": "read-only", "serviceName": "interesting_notch"
-                ])
-                guard let thread = result["thread"] as? CodexJSON, let id = thread["id"] as? String else {
-                    throw CodexConnection.Failure(message: "Codex didn’t return a chat ID.")
+                let items = try draft.input.turnItems()
+                let writer = try await connectWriter(for: pendingID)
+                if let threadID {
+                    let result = try await writer.request("thread/resume", ["threadId": threadID])
+                    managedThreads.insert(threadID)
+                    let thread = result["thread"] as? CodexJSON
+                    let status = thread?["status"] as? CodexJSON
+                    guard status?["type"] as? String != "active" else {
+                        throw CodexConnection.Failure(message: "Wait for this chat to finish its current reply, then restore your draft.")
+                    }
+                } else {
+                    var params: CodexJSON = ["approvalPolicy": "on-request", "sandbox": "read-only", "serviceName": "interesting_notch"]
+                    if let model = draft.model { params["model"] = model }
+                    let result = try await writer.request("thread/start", params)
+                    guard let thread = result["thread"] as? CodexJSON, let id = thread["id"] as? String else {
+                        throw CodexConnection.Failure(message: "Codex didn’t return a chat ID.")
+                    }
+                    chatID = id
+                    privateWriters[id] = privateWriters.removeValue(forKey: pendingID)
+                    sendingThreads.insert(id)
+                    chats[pendingID] = nil
+                    chats[id] = Chat(id: id, title: title, status: .running, updatedAt: now)
                 }
-                chatID = id
-                managedThreads.insert(id)
-                sendingThreads.insert(id)
-                defer {
-                    sendingThreads.remove(id)
-                }
-                chats[pendingID] = nil
-                chats[id] = Chat(id: id, title: title, status: .running, updatedAt: now)
-                var input: [CodexJSON] = [["type": "text", "text": draft.prompt]]
-                if let image = draft.image {
-                    input.append(["type": "image", "url": "data:image/png;base64," + image.base64EncodedString()])
-                }
-                _ = try await connection.request("turn/start", ["threadId": id, "input": input])
+                managedThreads.insert(chatID)
+                activeTurns.insert(chatID)
+                var turn: CodexJSON = [
+                    "threadId": chatID, "input": items,
+                    "approvalPolicy": "on-request", "sandboxPolicy": ["type": "readOnly"]
+                ]
+                if let model = draft.model { turn["model"] = model }
+                if let effort = draft.effort { turn["effort"] = effort }
+                if let tier = draft.serviceTier { turn["serviceTier"] = tier }
+                _ = try await writer.request("turn/start", turn)
             } catch {
                 guard !startedTurns.contains(chatID) else { return }
+                activeTurns.remove(chatID)
                 failedDrafts[chatID] = draft
                 chats[chatID]?.status = .attention
-                chats[chatID]?.detail = error.localizedDescription
+                let message = error.localizedDescription
+                chats[chatID]?.detail = message.contains("already has an active writer")
+                    ? "Close this chat in the other app, then restore your draft and try again."
+                    : message
             }
         }
     }
 
+    func canRestoreDraft(_ id: String) -> Bool {
+        guard let draft = failedDrafts[id] else { return false }
+        return (draft.threadID.map { replyInputs[$0, default: NotchComposerInput()] } ?? newInput).isEmpty
+    }
+
     func restoreDraft(_ id: String) {
-        guard prompt.isEmpty, screenshot == nil, let draft = failedDrafts.removeValue(forKey: id) else { return }
-        prompt = draft.prompt
-        screenshot = draft.image
+        guard canRestoreDraft(id), let draft = failedDrafts.removeValue(forKey: id) else { return }
+        if let threadID = draft.threadID {
+            replyInputs[threadID] = draft.input
+        } else {
+            newInput = draft.input
+        }
+        selectModel(draft.model)
+        effort = draft.effort.flatMap { selectedModel?.efforts.contains($0) == true ? $0 : nil }
+        fastMode = draft.serviceTier != nil && draft.serviceTier == selectedModel?.fastTier
         if chats[id]?.canOpenInDesktop == false {
             chats[id] = nil
         } else {
             chats[id]?.status = .history
+            chats[id]?.detail = ""
         }
     }
 
@@ -200,7 +339,64 @@ final class NotchChats: ObservableObject {
         }
     }
 
+    func openInDesktop(_ id: String) async throws {
+        if privateWriters[id] != nil {
+            releaseIdleChat(id)
+            await releases[id]?.value
+            guard privateWriters[id] == nil else {
+                throw CodexConnection.Failure(message: "Wait for this chat to finish its current reply, then open it again.")
+            }
+        }
+        guard UUID(uuidString: id) != nil, let url = URL(string: "codex://threads/" + id), NSWorkspace.shared.open(url) else {
+            throw CodexConnection.Failure(message: "Couldn’t open this chat in the ChatGPT desktop app.")
+        }
+    }
+
+    private func connectWriter(for id: String) async throws -> CodexConnection {
+        if sharedServer { return connection }
+        // Each local turn has its own process, so releasing one chat leaves other turns running.
+        let writer = CodexConnection()
+        privateWriters[id] = writer
+        writer.onMessage = { [weak self, weak writer] message in
+            if let writer { self?.receive(message, from: writer) }
+        }
+        writer.onDisconnect = { [weak self, weak writer] message in
+            guard let self, let writer, let id = self.privateWriters.first(where: { $0.value === writer })?.key else { return }
+            self.privateWriters[id] = nil
+            self.managedThreads.remove(id)
+            self.requests.removeAll { $0.threadID == id }
+            if self.activeTurns.remove(id) != nil {
+                self.chats[id]?.status = .attention
+                self.chats[id]?.detail = message
+            }
+        }
+        _ = try await writer.connect()
+        return writer
+    }
+
+    private func releaseIdleChat(_ id: String) {
+        guard !activeTurns.contains(id), !sendingThreads.contains(id), releases[id] == nil else { return }
+        let writer = privateWriters[id]
+        guard writer != nil || managedThreads.contains(id) else { return }
+        releases[id] = Task {
+            defer { releases[id] = nil }
+            do {
+                if let writer {
+                    try await writer.stopLocalSession()
+                    writer.close()
+                    privateWriters[id] = nil
+                } else {
+                    _ = try await connection.request("thread/unsubscribe", ["threadId": id])
+                }
+                managedThreads.remove(id)
+            } catch {
+                connectionError = error.localizedDescription
+            }
+        }
+    }
+
     func respond(_ request: Attention, accept: Bool, answers: [String: String] = [:]) {
+        let connection = privateWriters[request.threadID] ?? self.connection
         switch request.kind {
         case .command:
             connection.respond(to: request.wireID, result: ["decision": accept ? "accept" : "decline"])
@@ -245,7 +441,10 @@ final class NotchChats: ObservableObject {
             chats[id]?.status = .attention
         case "idle":
             if !managedThreads.contains(id) {
-                chats[id]?.status = sharedServer ? .done : savedStatus(id)
+                let wasRunning = chats[id]?.status == .running
+                let status: Status = sharedServer && outcomes[id] != clearedOutcome ? .done : savedStatus(id)
+                chats[id]?.status = status
+                if wasRunning, status == .done { chatCompleted.send() }
             }
         case "notLoaded":
             if !managedThreads.contains(id), chats[id]?.status != .done {
@@ -256,11 +455,11 @@ final class NotchChats: ObservableObject {
         }
     }
 
-    private func receive(_ message: CodexJSON) {
+    private func receive(_ message: CodexJSON, from source: CodexConnection) {
         guard let method = message["method"] as? String else { return }
         let params = message["params"] as? CodexJSON ?? [:]
         if let id = message["id"] {
-            receiveRequest(method, id: id, params: params)
+            receiveRequest(method, id: id, params: params, from: source)
             return
         }
         guard let id = params["threadId"] as? String else { return }
@@ -271,8 +470,12 @@ final class NotchChats: ObservableObject {
             if sendingThreads.contains(id) { startedTurns.insert(id) }
             chats[id]?.status = .running
         case "turn/completed":
-            guard chats[id] != nil, let turn = params["turn"] as? CodexJSON else { return }
+            guard let turn = params["turn"] as? CodexJSON else { return }
             if sendingThreads.contains(id) { startedTurns.insert(id) }
+            let sentFromNotch = activeTurns.remove(id) != nil
+            defer { releaseIdleChat(id) }
+            requests.removeAll { $0.threadID == id }
+            guard let chat = chats[id] else { return }
             let status: Status = turn["status"] as? String == "completed" ? .done : .attention
             chats[id]?.status = status
             chats[id]?.updatedAt = Date().timeIntervalSince1970
@@ -280,11 +483,11 @@ final class NotchChats: ObservableObject {
                 let error = turn["error"] as? CodexJSON
                 chats[id]?.detail = error?["message"] as? String ?? "This request ended before it completed."
             }
-            if managedThreads.contains(id) {
+            if sentFromNotch {
                 outcomes[id] = status.rawValue
                 UserDefaults.standard.set(outcomes, forKey: outcomesKey)
             }
-            requests.removeAll { $0.threadID == id }
+            if status == .done, chat.status != .done { chatCompleted.send() }
         case "item/completed":
             if let item = params["item"] as? CodexJSON,
                item["type"] as? String == "agentMessage", let text = item["text"] as? String {
@@ -292,7 +495,7 @@ final class NotchChats: ObservableObject {
             }
         case "serverRequest/resolved":
             if let requestID = params["requestId"] {
-                requests.removeAll { $0.id == String(describing: requestID) }
+                requests.removeAll { $0.threadID == id && String(describing: $0.wireID) == String(describing: requestID) }
             }
         case "thread/archived", "thread/deleted":
             chats[id] = nil
@@ -301,12 +504,12 @@ final class NotchChats: ObservableObject {
         }
     }
 
-    private func receiveRequest(_ method: String, id: Any, params: CodexJSON) {
+    private func receiveRequest(_ method: String, id: Any, params: CodexJSON, from connection: CodexConnection) {
         guard let threadID = params["threadId"] as? String else {
             connection.declineUnknownRequest(id)
             return
         }
-        let key = String(describing: id)
+        let key = threadID + ":" + String(describing: id)
         let reason = params["reason"] as? String ?? ""
         switch method {
         case "item/commandExecution/requestApproval":
@@ -343,10 +546,11 @@ final class NotchChats: ObservableObject {
     private func connectionLost(_ message: String) {
         isConnected = false
         connectionError = message
-        requests.removeAll()
-        managedThreads.removeAll()
+        requests.removeAll { privateWriters[$0.threadID] == nil }
+        managedThreads.formIntersection(privateWriters.keys)
+        activeTurns.formIntersection(privateWriters.keys)
         for id in Array(chats.keys) where chats[id]?.status == .running || chats[id]?.status == .attention {
-            if failedDrafts[id] == nil {
+            if failedDrafts[id] == nil, privateWriters[id] == nil {
                 chats[id]?.status = .history
             }
         }

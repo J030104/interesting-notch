@@ -201,9 +201,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let detector = DragDetector(notchRegion: notchRegion)
         
-        detector.onDragEntersNotchRegion = { [weak self] in
+        detector.onDragEntersNotchRegion = { [weak self] includesFile in
             Task { @MainActor in
-                self?.handleDragEntersNotchRegion(onScreen: screen)
+                self?.handleDragEntersNotchRegion(onScreen: screen, includesFile: includesFile)
             }
         }
         
@@ -211,15 +211,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         detector.startMonitoring()
     }
 
-    private func handleDragEntersNotchRegion(onScreen screen: NSScreen) {
-        guard Defaults[.boringShelf], let uuid = screen.displayUUID else { return }
+    private func handleDragEntersNotchRegion(onScreen screen: NSScreen, includesFile: Bool) {
+        guard let uuid = screen.displayUUID else { return }
         
         if Defaults[.showOnAllDisplays], let viewModel = viewModels[uuid] {
-            viewModel.open()
-            coordinator.currentView = .shelf
+            viewModel.openForDrag(includesFile: includesFile)
         } else if !Defaults[.showOnAllDisplays], let windowScreen = window?.screen, screen == windowScreen {
-            vm.open()
-            coordinator.currentView = .shelf
+            vm.openForDrag(includesFile: includesFile)
         }
     }
 

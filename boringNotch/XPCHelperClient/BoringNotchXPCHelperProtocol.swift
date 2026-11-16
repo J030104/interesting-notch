@@ -15,6 +15,7 @@ import Foundation
 
 @objc protocol BoringNotchXPCHelperProtocol {
     func startCodex(with reply: @escaping (Bool, String?) -> Void)
+    func stopCodex(with reply: @escaping () -> Void)
     func writeCodex(_ data: Data, with reply: @escaping (Bool) -> Void)
     func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void)
     func requestAccessibilityAuthorization()

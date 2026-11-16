@@ -11,6 +11,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct FileShareView: View {
+    var compact = false
     @EnvironmentObject private var vm: BoringViewModel
     @StateObject private var quickShare = QuickShareService.shared
     @Default(.quickShareProvider) var quickShareProvider: String
@@ -56,41 +57,14 @@ struct FileShareView: View {
                 )
                 .shadow(color: Color.black.opacity(0.6), radius: 6, x: 0, y: 2)
 
-            // Content
-            VStack(spacing: 5) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(
-                            vm.dropZoneTargeting ? 0.11 : 0.09
-                        ))
-                        .frame(width: 55, height: 55)
-                    Image(systemName: "square.and.arrow.up")
-                    Group {
-                        if let imgData = selectedProvider.imageData, let nsImg = NSImage(data: imgData) {
-                            Image(nsImage: nsImg)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                        } else {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                    .frame(width: 34, height: 34)
-                        .foregroundStyle(
-                            vm.dropZoneTargeting ? Color.accentColor : Color.gray
-                        )
-                        .scaleEffect(
-                            vm.dropZoneTargeting ? 1.06 : 1.0
-                        )
-                        .animation(.spring(response: 0.36, dampingFraction: 0.7), value: vm.dropZoneTargeting)
-                }
-
-                Text(selectedProvider.id)
-                    .font(.system(.headline, design: .rounded))
-                    .foregroundColor(.white.opacity(0.8))
-
+            if compact {
+                Label(selectedProvider.id, systemImage: "square.and.arrow.up")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(vm.dropZoneTargeting ? Color.accentColor : Color.white.opacity(0.8))
+            } else {
+                providerBadge
             }
-            .padding(18)
-            
+
             // Loading overlay
             if isProcessing || quickShare.isPickerOpen {
                 RoundedRectangle(cornerRadius: 12)
@@ -103,6 +77,35 @@ struct FileShareView: View {
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var providerBadge: some View {
+        VStack(spacing: 5) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(vm.dropZoneTargeting ? 0.11 : 0.09))
+                    .frame(width: 55, height: 55)
+                Image(systemName: "square.and.arrow.up")
+                Group {
+                    if let imgData = selectedProvider.imageData, let nsImg = NSImage(data: imgData) {
+                        Image(nsImage: nsImg)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                .frame(width: 34, height: 34)
+                .foregroundStyle(vm.dropZoneTargeting ? Color.accentColor : Color.gray)
+                .scaleEffect(vm.dropZoneTargeting ? 1.06 : 1.0)
+                .animation(.spring(response: 0.36, dampingFraction: 0.7), value: vm.dropZoneTargeting)
+            }
+
+            Text(selectedProvider.id)
+                .font(.system(.headline, design: .rounded))
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding(18)
     }
 
     // MARK: - Actions

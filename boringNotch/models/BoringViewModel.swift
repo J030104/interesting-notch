@@ -22,6 +22,7 @@ class BoringViewModel: NSObject, ObservableObject {
     @Published var dragDetectorTargeting: Bool = false
     @Published var generalDropTargeting: Bool = false
     @Published var dropZoneTargeting: Bool = false
+    @Published var chatDropTargeting = false
     @Published var dropEvent: Bool = false
     @Published var anyDropZoneTargeting: Bool = false
     var cancellables: Set<AnyCancellable> = []
@@ -37,6 +38,13 @@ class BoringViewModel: NSObject, ObservableObject {
 
     @Published var notchSize: CGSize = getClosedNotchSize()
     @Published var closedNotchSize: CGSize = getClosedNotchSize()
+
+    var displayedNotchHeight: CGFloat {
+        if notchState == .open, coordinator.currentView == .chats, !isScreenLocked {
+            return openChatNotchHeight
+        }
+        return notchSize.height
+    }
     
     let webcamManager = WebcamManager.shared
     @Published var isCameraExpanded: Bool = false
@@ -60,9 +68,9 @@ class BoringViewModel: NSObject, ObservableObject {
         notchSize = getClosedNotchSize(screenUUID: screenUUID)
         closedNotchSize = notchSize
 
-        Publishers.CombineLatest3($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting)
-            .map { shelf, drag, general in
-                shelf || drag || general
+        Publishers.CombineLatest4($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting, $chatDropTargeting)
+            .map { share, shelf, general, chat in
+                share || shelf || general || chat
             }
             .assign(to: \.anyDropZoneTargeting, on: self)
             .store(in: &cancellables)
@@ -181,7 +189,7 @@ class BoringViewModel: NSObject, ObservableObject {
         let screenFrame = getScreenFrame(screenUUID)
         if let frame = screenFrame {
             
-            let baseY = frame.maxY - notchSize.height
+            let baseY = frame.maxY - displayedNotchHeight
             let baseX = frame.midX - notchSize.width / 2
             
             return position.y >= baseY && position.x >= baseX && position.x <= baseX + notchSize.width
@@ -196,6 +204,18 @@ class BoringViewModel: NSObject, ObservableObject {
         
         // Force music information update when notch is opened
         MusicManager.shared.forceUpdate()
+    }
+
+    func openForDrag(includesFile: Bool) {
+        guard notchState == .closed || coordinator.currentView == .home else { return }
+        if includesFile, Defaults[.notchChats], !isScreenLocked {
+            coordinator.currentView = .chats
+        } else if Defaults[.boringShelf] {
+            coordinator.currentView = .shelf
+        } else {
+            return
+        }
+        if notchState == .closed { open() }
     }
 
     func close() {

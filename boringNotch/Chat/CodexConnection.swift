@@ -122,7 +122,7 @@ final class CodexConnection {
             }
         } as? BoringNotchXPCHelperProtocol
         guard let proxy else { throw Failure(message: "Connect to Codex first.") }
-        var bytes = try JSONSerialization.data(withJSONObject: message)
+        var bytes = try JSONSerialization.data(withJSONObject: message, options: .withoutEscapingSlashes)
         bytes.append(0x0A)
         proxy.writeCodex(bytes) { [weak self] sent in
             if !sent {
@@ -140,6 +140,20 @@ final class CodexConnection {
         buffer.removeAll()
         for id in Array(pending.keys) {
             finish(id, result: .failure(Failure(message: "The Codex connection closed.")))
+        }
+    }
+
+    func stopLocalSession() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let failure = Failure(message: "Couldn’t release the chat from the notch.")
+            let proxy = connection?.remoteObjectProxyWithErrorHandler { _ in
+                continuation.resume(throwing: failure)
+            } as? BoringNotchXPCHelperProtocol
+            guard let proxy else {
+                continuation.resume(throwing: failure)
+                return
+            }
+            proxy.stopCodex { continuation.resume() }
         }
     }
 

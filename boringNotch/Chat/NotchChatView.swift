@@ -1,18 +1,30 @@
 import AppKit
-import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
 struct NotchChatView: View {
+    @EnvironmentObject private var vm: BoringViewModel
+    let showQuickShare: Bool
     @ObservedObject private var model = NotchChats.shared
     @State private var selectedID: String?
     @State private var answers: [String: String] = [:]
     @State private var pasteError: String?
+    @State private var openingChatID: String?
+    @State private var isAttaching = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
+                Button {
+                    model.clearFinishedChats()
+                } label: {
+                    Image(systemName: "eraser")
+                }
+                .buttonStyle(.plain)
+                .disabled(!model.hasFinishedNotchChats)
+                .accessibilityLabel("Clear Done tracking")
+                .help("Clear the Done status and keep the chats in History.")
                 counter(.done, icon: "checkmark.circle", color: .secondary)
                 counter(.running, icon: "circle.dotted", color: .secondary)
                 counter(.attention, icon: "exclamationmark.circle", color: model.count(.attention) > 0 ? .orange : .secondary)
@@ -29,14 +41,21 @@ struct NotchChatView: View {
                     if let selectedID, let chat = model.chats[selectedID] {
                         details(chat)
                     } else {
-                        composer
+                        composer($model.newInput)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 Divider()
-                chatList
-                    .frame(width: 225)
+                VStack(spacing: 6) {
+                    chatList
+                    if showQuickShare {
+                        FileShareView(compact: true)
+                            .frame(height: 32)
+                            .help("Drop a file here to share it.")
+                    }
+                }
+                .frame(width: 225)
             }
         }
         .padding(.horizontal, 5)
@@ -52,6 +71,8 @@ struct NotchChatView: View {
         .task(id: selectedID) {
             if let selectedID { await model.loadReply(selectedID) }
         }
+        .onChange(of: selectedID) { pasteError = nil }
+        .onDisappear { vm.chatDropTargeting = false }
     }
 
     private func counter(_ status: NotchChats.Status, icon: String, color: Color) -> some View {
@@ -60,21 +81,71 @@ struct NotchChatView: View {
             .fixedSize()
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
-                if let data = model.screenshot, let preview = NSImage(data: data) {
-                    Image(nsImage: preview)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 44, height: 41)
-                        .background(.white.opacity(0.09), in: .rect(cornerRadius: 4))
-                        .accessibilityLabel("Attached screenshot")
+    private func composer(_ draft: Binding<NotchComposerInput>, in threadID: String? = nil) -> some View {
+        let input = draft.wrappedValue
+        return VStack(alignment: .leading, spacing: 5) {
+            if !input.files.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 5) {
+                        ForEach(input.files.indices, id: \.self) { index in
+                            let file = input.files[index]
+                            HStack(spacing: 4) {
+                                Label(file.lastPathComponent, systemImage: "doc")
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: 160)
+                                Button {
+                                    draft.wrappedValue.files.remove(at: index)
+                                    pasteError = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove \(file.lastPathComponent)")
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.white.opacity(0.08), in: .rect(cornerRadius: 4))
+                            .help(file.path(percentEncoded: false))
+                        }
+                    }
+                    .font(.system(size: 11))
                 }
-                ChatPromptField(text: $model.prompt, pasteImage: pasteImage, submit: submit)
+                .scrollIndicators(.hidden)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 7) {
+                ForEach(input.screenshots.indices, id: \.self) { index in
+                    if let preview = NSImage(data: input.screenshots[index]) {
+                        Image(nsImage: preview)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 44, height: 41)
+                            .background(.white.opacity(0.09), in: .rect(cornerRadius: 4))
+                            .accessibilityLabel("Screenshot \(index + 1)")
+                            .overlay(alignment: .topTrailing) {
+                                Button {
+                                    draft.wrappedValue.screenshots.remove(at: index)
+                                    pasteError = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .padding(2)
+                                        .background(.black.opacity(0.8), in: .circle)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove screenshot \(index + 1)")
+                            }
+                    }
+                }
+                ChatPromptField(
+                    text: draft.prompt,
+                    pasteAttachments: { pasteAttachments($0, into: draft) },
+                    submit: { submit(in: threadID) }
+                )
                     .overlay(alignment: .topLeading) {
-                        if model.prompt.isEmpty {
-                            Text("Ask a question or paste a screenshot…")
+                        if input.prompt.isEmpty {
+                            Text(threadID == nil ? "Ask a question or drop files…" : "Continue this chat…")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .padding(.top, 4)
@@ -85,26 +156,53 @@ struct NotchChatView: View {
                     }
             }
             .padding(4)
-            .frame(height: 55)
+            .frame(height: threadID == nil ? 55 : 50)
             .background(.white.opacity(0.08), in: .rect(cornerRadius: 6))
+            .overlay {
+                if vm.chatDropTargeting || isAttaching {
+                    Label(isAttaching ? "Attaching…" : "Drop files to attach", systemImage: "paperclip")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.black.opacity(0.9), in: .rect(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor))
+                        .allowsHitTesting(false)
+                }
+            }
+            .onDrop(of: DragDetector.fileTypes, isTargeted: $vm.chatDropTargeting) { providers in
+                attachDroppedFiles(providers, to: draft)
+            }
 
             HStack(spacing: 7) {
                 Button {
-                    _ = pasteImage(NSPasteboard.general)
+                    chooseFiles(for: draft)
                 } label: {
-                    Label(model.screenshot == nil ? "Paste screenshot" : "Replace screenshot", systemImage: "clipboard")
+                    Image(systemName: "paperclip")
                 }
-                if model.screenshot != nil {
-                    Button("Remove") { model.screenshot = nil }
+                .accessibilityLabel("Attach files")
+                .disabled(isAttaching)
+                .help("Choose files to attach")
+
+                Button {
+                    if !pasteAttachments(NSPasteboard.general, into: draft) {
+                        pasteError = "Copy a file or screenshot first."
+                    }
+                } label: {
+                    Image(systemName: "clipboard")
                 }
+                .accessibilityLabel("Paste attachments")
+                .disabled(isAttaching)
+                .help("Paste files or screenshots")
+                if !model.models.isEmpty { modelOptions }
                 Spacer(minLength: 1)
-                if model.isConnected {
-                    Button(action: submit) {
-                        Label("Ask", systemImage: "arrow.up.circle.fill")
+                if model.isConnected && !model.isConnecting {
+                    Button {
+                        submit(in: threadID)
+                    } label: {
+                        Label(threadID == nil ? "Ask" : "Send", systemImage: "arrow.up.circle.fill")
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.screenshot == nil && model.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .help("Start a new Codex chat (⌘↩)")
+                    .disabled(isAttaching || !model.canSubmit(input, in: threadID))
+                    .help(threadID == nil ? "Start a new Codex chat (⌘↩)" : "Send a follow-up (⌘↩)")
                 } else {
                     Button(model.isConnecting ? "Connecting…" : "Connect") {
                         Task { await model.connect() }
@@ -114,7 +212,7 @@ struct NotchChatView: View {
             }
             .controlSize(.small)
 
-            if let message = pasteError ?? model.connectionError {
+            if let message = pasteError ?? model.connectionError ?? imageSupportMessage(input) {
                 Text(message)
                     .lineLimit(2)
                     .font(.system(size: 10))
@@ -122,6 +220,43 @@ struct NotchChatView: View {
                     .help(message)
             }
         }
+    }
+
+    private var modelOptions: some View {
+        Menu {
+            Picker("Model", selection: Binding(get: { model.modelID }, set: { model.selectModel($0) })) {
+                Text("Codex default").tag(nil as String?)
+                ForEach(model.models) { option in
+                    Text(option.name).tag(Optional(option.id))
+                }
+            }
+            if let selectedModel = model.selectedModel, !selectedModel.efforts.isEmpty {
+                Picker("Reasoning effort", selection: $model.effort) {
+                    Text(selectedModel.defaultEffort.map { "Default (\(effortLabel($0)))" } ?? "Default").tag(nil as String?)
+                    ForEach(selectedModel.efforts, id: \.self) { effort in
+                        Text(effortLabel(effort)).tag(Optional(effort))
+                    }
+                }
+            }
+            if let selectedModel = model.selectedModel, selectedModel.fastTier != nil {
+                Toggle("Fast mode", isOn: $model.fastMode)
+                    .help(selectedModel.fastDescription ?? "Use the model’s faster service tier.")
+            }
+        } label: {
+            Label(model.modelID == nil ? "Codex default" : (model.selectedModel?.name ?? "Model"),
+                  systemImage: model.fastMode ? "bolt.fill" : "slider.horizontal.3")
+                .lineLimit(1)
+        }
+        .help("Model, reasoning effort, and Fast mode")
+    }
+
+    private func effortLabel(_ effort: String) -> String {
+        effort == "xhigh" ? "Extra high" : effort.capitalized
+    }
+
+    private func imageSupportMessage(_ input: NotchComposerInput) -> String? {
+        guard !input.screenshots.isEmpty, model.selectedModel?.supportsImages == false else { return nil }
+        return "Choose a model that accepts screenshots."
     }
 
     private var chatList: some View {
@@ -170,13 +305,20 @@ struct NotchChatView: View {
                 Spacer(minLength: 2)
                 if chat.canOpenInDesktop, UUID(uuidString: chat.id) != nil {
                     Button {
-                        if let url = URL(string: "codex://threads/" + chat.id), !NSWorkspace.shared.open(url) {
-                            pasteError = "Couldn’t open this chat in the ChatGPT desktop app."
-                            selectedID = nil
+                        openingChatID = chat.id
+                        pasteError = nil
+                        Task {
+                            defer { openingChatID = nil }
+                            do {
+                                try await model.openInDesktop(chat.id)
+                            } catch {
+                                if selectedID == chat.id { pasteError = error.localizedDescription }
+                            }
                         }
                     } label: {
                         Label("Open chat", systemImage: "arrow.up.right")
                     }
+                    .disabled(openingChatID != nil)
                     .help("Open this chat in the ChatGPT desktop app")
                 }
             }
@@ -196,11 +338,19 @@ struct NotchChatView: View {
             }
             if model.failedDrafts[chat.id] != nil {
                 Button("Restore draft") {
+                    let target = model.failedDrafts[chat.id]?.threadID
                     model.restoreDraft(chat.id)
-                    selectedID = nil
+                    selectedID = target
+                    if let target { Task { await model.loadReply(target) } }
                 }
                 .controlSize(.small)
-                .disabled(!model.prompt.isEmpty || model.screenshot != nil)
+                .disabled(isAttaching || !model.canRestoreDraft(chat.id))
+            }
+            if chat.canOpenInDesktop {
+                composer(Binding(
+                    get: { model.replyInputs[chat.id, default: NotchComposerInput()] },
+                    set: { model.replyInputs[chat.id] = $0 }
+                ), in: chat.id)
             }
         }
     }
@@ -222,7 +372,7 @@ struct NotchChatView: View {
                     ForEach(request.questions) { question in
                         Text(question.text)
                         if question.options.isEmpty {
-                            ChatPromptField(text: answerBinding(question.id), pasteImage: { _ in false }, submit: {})
+                            ChatPromptField(text: answerBinding(question.id), pasteAttachments: { _ in false }, submit: {})
                                 .frame(height: 24)
                                 .background(.white.opacity(0.08), in: .rect(cornerRadius: 4))
                         } else {
@@ -256,60 +406,102 @@ struct NotchChatView: View {
         Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })
     }
 
-    private func submit() {
+    private func submit(in threadID: String?) {
+        guard !isAttaching else { return }
         pasteError = nil
-        model.submit()
+        model.submit(in: threadID)
     }
 
-    private func pasteImage(_ pasteboard: NSPasteboard) -> Bool {
-        let png = pasteboard.data(forType: .png)
-        guard let data = png ?? pasteboard.data(forType: .tiff) else {
-            pasteError = "Copy a screenshot first with ⌃⇧⌘4."
-            return false
+    private func chooseFiles(for draft: Binding<NotchComposerInput>) {
+        let panel = NSOpenPanel()
+        panel.title = "Attach Files"
+        panel.prompt = "Attach"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+
+        let sharing = SharingStateManager.shared
+        sharing.beginInteraction()
+        defer { sharing.endInteraction(closeNotch: false) }
+        if panel.runModal() == .OK {
+            pasteError = addAttachments(panel.urls.map { NotchAttachment(fileURL: $0) }, to: draft)
         }
+    }
+
+    private func pasteAttachments(_ pasteboard: NSPasteboard, into draft: Binding<NotchComposerInput>) -> Bool {
+        let types: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
+        let items = pasteboard.pasteboardItems?.filter { $0.availableType(from: types) != nil } ?? []
+        guard !items.isEmpty else { return false }
+        guard !isAttaching else { return true }
+        let attachments: [NotchAttachment?] = items.map { item in
+            if let url = item.string(forType: .fileURL).flatMap({ URL(string: $0) }) {
+                return NotchAttachment(fileURL: url)
+            }
+            return (item.data(forType: .png) ?? item.data(forType: .tiff))
+                .flatMap(NotchScreenshot.encode).map(NotchAttachment.screenshot)
+        }
+        pasteError = addAttachments(attachments, to: draft)
+        return true
+    }
+
+    private func attachDroppedFiles(_ providers: [NSItemProvider], to draft: Binding<NotchComposerInput>) -> Bool {
+        guard !isAttaching, !providers.isEmpty else { return false }
+        vm.dropEvent = true
         pasteError = nil
-        let maxBytes = 6 * 1024 * 1024
-        if let png, png.count <= maxBytes {
-            model.screenshot = png
-            return true
-        }
-        if let source = CGImageSourceCreateWithData(data as CFData, nil) {
-            for pixels in [2400, 1600, 1200] {
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: pixels
-                ]
-                guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { break }
-                let png = NSMutableData()
-                if let writer = CGImageDestinationCreateWithData(png, UTType.png.identifier as CFString, 1, nil) {
-                    CGImageDestinationAddImage(writer, image, nil)
-                    if CGImageDestinationFinalize(writer), png.length <= maxBytes {
-                        model.screenshot = png as Data
-                        return true
-                    }
-                }
+        isAttaching = true
+        let targetID = selectedID
+        let count = providers.count
+        let (results, continuation) = AsyncStream.makeStream(of: (Int, NotchAttachment?).self)
+        for (index, provider) in providers.enumerated() {
+            NotchAttachment.load(provider) { attachment in
+                continuation.yield((index, attachment))
             }
         }
-        pasteError = "This screenshot couldn’t be attached."
+        Task { @MainActor in
+            defer {
+                continuation.finish()
+                isAttaching = false
+            }
+            var attachments = [NotchAttachment?](repeating: nil, count: count)
+            for await (index, attachment) in results.prefix(count) { attachments[index] = attachment }
+            let error = addAttachments(attachments, to: draft)
+            if selectedID == targetID { pasteError = error }
+        }
         return true
+    }
+
+    private func addAttachments(_ attachments: [NotchAttachment?], to draft: Binding<NotchComposerInput>) -> String? {
+        var input = draft.wrappedValue
+        var error: String?
+        for attachment in attachments {
+            switch attachment {
+            case .screenshot(let data) where input.screenshots.count < NotchScreenshot.limit:
+                input.screenshots.append(data)
+            case .screenshot:
+                error = "You can attach up to \(NotchScreenshot.limit) screenshots per question."
+            case .file(let url):
+                input.files.append(url)
+            case nil:
+                error = "An attachment couldn’t be opened. Choose a file or screenshot."
+            }
+        }
+        draft.wrappedValue = input
+        return error
     }
 }
 
 private struct ChatPromptField: NSViewRepresentable {
     @Binding var text: String
-    var pasteImage: (NSPasteboard) -> Bool
+    var pasteAttachments: (NSPasteboard) -> Bool
     var submit: () -> Void
 
     final class Editor: NSTextView {
-        var pasteImage: (NSPasteboard) -> Bool = { _ in false }
+        var pasteAttachments: (NSPasteboard) -> Bool = { _ in false }
         var submit: () -> Void = {}
 
         override var needsPanelToBecomeKey: Bool { true }
 
         override func paste(_ sender: Any?) {
-            let pasteboard = NSPasteboard.general
-            if pasteboard.availableType(from: [.png, .tiff]) != nil, pasteImage(pasteboard) { return }
+            if pasteAttachments(NSPasteboard.general) { return }
             super.paste(sender)
         }
 
@@ -362,9 +554,42 @@ private struct ChatPromptField: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let editor = scroll.documentView as? Editor else { return }
         if editor.string != text { editor.string = text }
-        editor.pasteImage = pasteImage
+        editor.pasteAttachments = pasteAttachments
         editor.submit = submit
         context.coordinator.text = $text
+    }
+}
+
+struct NotchChatCompletionChip: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+    @State private var dismissalTask: Task<Void, Never>?
+
+    var body: some View {
+        Label("Chat finished", systemImage: "checkmark.circle.fill")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .frame(height: chatCompletionChipTravel - 5)
+            .background(.black, in: .capsule)
+            .fixedSize()
+            .offset(y: isVisible || reduceMotion ? chatCompletionChipTravel : 0)
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(!isVisible)
+            .onReceive(NotchChats.shared.chatCompleted) {
+                dismissalTask?.cancel()
+                let animation = Animation.easeInOut(duration: reduceMotion ? 0.15 : 0.3)
+                withAnimation(animation) { isVisible = true }
+                dismissalTask = Task { @MainActor in
+                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                    withAnimation(animation) { isVisible = false }
+                }
+            }
+            .onDisappear {
+                dismissalTask?.cancel()
+                isVisible = false
+            }
     }
 }
 
@@ -376,14 +601,14 @@ struct NotchActiveIndicator: View {
         Capsule()
             .fill(Color(red: 0.44, green: 0.58, blue: 0.68))
             .frame(width: 2, height: 12)
-            .opacity(blinking ? 0.95 : 0.52)
+            .opacity(blinking ? 1 : 0)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .task(id: reduceMotion) {
                 blinking = false
                 guard !reduceMotion else { return }
                 while !Task.isCancelled {
-                    do { try await Task.sleep(for: .seconds(8)) } catch { break }
+                    do { try await Task.sleep(for: .seconds(4)) } catch { break }
                     withAnimation(.easeInOut(duration: 0.2)) { blinking = true }
                     do { try await Task.sleep(for: .milliseconds(320)) } catch { break }
                     withAnimation(.easeInOut(duration: 0.3)) { blinking = false }

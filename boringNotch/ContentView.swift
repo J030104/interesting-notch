@@ -12,6 +12,7 @@ import Defaults
 import KeyboardShortcuts
 import SwiftUI
 import SwiftUIIntrospect
+import UniformTypeIdentifiers
 
 @MainActor
 struct ContentView: View {
@@ -123,7 +124,12 @@ struct ContentView: View {
                     )
                 
                 mainLayout
-                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
+                    .frame(height: vm.notchState == .open ? vm.displayedNotchHeight : nil)
+                    .background(alignment: .bottom) {
+                        if notchChats, !vm.isScreenLocked, vm.notchState == .open || !vm.hideOnClosed {
+                            NotchChatCompletionChip()
+                        }
+                    }
                     .conditionalModifier(true) { view in
                         let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
                         let closeAnimation = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
@@ -147,7 +153,7 @@ struct ContentView: View {
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
                         view
-                            .panGesture(direction: .up) { translation, phase in
+                            .panGesture(direction: .up, includesScroll: false) { translation, phase in
                                 handleUpGesture(translation: translation, phase: phase)
                             }
                     }
@@ -243,10 +249,7 @@ struct ContentView: View {
             anyDropDebounceTask?.cancel()
 
             if isTargeted {
-                if vm.notchState == .closed {
-                    coordinator.currentView = .shelf
-                    doOpen()
-                }
+                hoverTask?.cancel()
                 return
             }
 
@@ -260,7 +263,7 @@ struct ContentView: View {
                 }
 
                 vm.dropEvent = false
-                if !SharingStateManager.shared.preventNotchClose {
+                if !vm.isMouseHovering() && !SharingStateManager.shared.preventNotchClose {
                     vm.close()
                 }
             }
@@ -372,7 +375,7 @@ struct ContentView: View {
                         if vm.isScreenLocked {
                             NotchHomeView(albumArtNamespace: albumArtNamespace)
                         } else {
-                            NotchChatView()
+                            NotchChatView(showQuickShare: shelfEnabled)
                         }
                     case .home:
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
@@ -390,9 +393,8 @@ struct ContentView: View {
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
             }
         }
-        .conditionalModifier(shelfEnabled) { view in
-            view.onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data],
-                        delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting))
+        .conditionalModifier(!notchDropTypes.isEmpty) { view in
+            view.onDrop(of: notchDropTypes, delegate: GeneralDropTargetDelegate(vm: vm))
         }
     }
 
@@ -505,18 +507,17 @@ struct ContentView: View {
 
     @ViewBuilder
     var dragDetector: some View {
-        if Defaults[.boringShelf] && vm.notchState == .closed {
+        if !notchDropTypes.isEmpty && vm.notchState == .closed {
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
-        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], isTargeted: $vm.dragDetectorTargeting) { providers in
-            vm.dropEvent = true
-            ShelfStateViewModel.shared.load(providers)
-            return true
+                .onDrop(of: notchDropTypes, delegate: GeneralDropTargetDelegate(vm: vm, tracksHover: false))
         }
-        } else {
-            EmptyView()
-        }
+    }
+
+    private var notchDropTypes: [UTType] {
+        if shelfEnabled { return DragDetector.fileTypes + [.url, .utf8PlainText, .plainText, .data] }
+        return notchChats && !vm.isScreenLocked ? DragDetector.fileTypes : []
     }
 
     private func doOpen() {
@@ -566,7 +567,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                    if self.vm.notchState == .open && !self.vm.anyDropZoneTargeting && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
                         self.vm.close()
                     }
                 }
@@ -649,14 +650,16 @@ struct FullScreenDropDelegate: DropDelegate {
 }
 
 struct GeneralDropTargetDelegate: DropDelegate {
-    @Binding var isTargeted: Bool
+    let vm: BoringViewModel
+    var tracksHover = true
 
     func dropEntered(info: DropInfo) {
-        isTargeted = true
+        if tracksHover { vm.generalDropTargeting = true }
+        vm.openForDrag(includesFile: info.hasItemsConforming(to: DragDetector.fileTypes))
     }
 
     func dropExited(info: DropInfo) {
-        isTargeted = false
+        if tracksHover { vm.generalDropTargeting = false }
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -664,6 +667,7 @@ struct GeneralDropTargetDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if tracksHover { vm.generalDropTargeting = false }
         return false
     }
 }

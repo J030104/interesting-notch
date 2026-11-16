@@ -26,6 +26,10 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         codex.write(data, reply: reply)
     }
 
+    @objc func stopCodex(with reply: @escaping () -> Void) {
+        codex.stop(reply: reply)
+    }
+
     
     @objc func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void) {
         reply(AXIsProcessTrusted())

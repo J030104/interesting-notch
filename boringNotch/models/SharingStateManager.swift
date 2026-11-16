@@ -22,9 +22,6 @@ final class SharingStateManager: ObservableObject {
 			let newValue = activeSessions > 0
 			if newValue != preventNotchClose {
 				preventNotchClose = newValue
-				if !newValue {
-					NotificationCenter.default.post(name: .sharingDidFinish, object: nil)
-				}
 			}
 		}
 	}
@@ -45,8 +42,12 @@ final class SharingStateManager: ObservableObject {
 		activeSessions += 1
 	}
 
-	func endInteraction() {
-		if activeSessions > 0 { activeSessions -= 1 }
+	func endInteraction(closeNotch: Bool = true) {
+		guard activeSessions > 0 else { return }
+		activeSessions -= 1
+		if closeNotch && activeSessions == 0 {
+			requestCloseIfReady()
+		}
 	}
 
 	func makeDelegate(onEnd: (() -> Void)? = nil) -> SharingLifecycleDelegate {
