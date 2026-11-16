@@ -29,6 +29,7 @@ env:
 jobs:
   prepare:
     name: Prepare nightly metadata
+    if: github.repository == 'TheBoredTeam/boring.notch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
