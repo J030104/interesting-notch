@@ -18,8 +18,9 @@ fi
 
 codesign --verify --deep --strict "$app"
 executable="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$plist")"
-if ! strings "$app/Contents/MacOS/$executable" | grep -Fx 'Attach files' >/dev/null; then
-    echo 'This build is missing the file attachment control.' >&2
+# Swift can inline short UI labels in Release. Check the file payload text instead.
+if ! strings "$app/Contents/MacOS/$executable" | grep -F 'Read these local file attachments when answering:' >/dev/null; then
+    echo 'This build is missing file attachment support.' >&2
     exit 1
 fi
 

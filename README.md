@@ -24,7 +24,7 @@ The current macOS ChatGPT desktop app has an opt-in local daemon mode. When your
 
 Open `boringNotch.xcodeproj` in Xcode 26 or later and run the `boringNotch` scheme. The build product is **Interesting Notch.app**. Development builds are also available from successful [Build Interesting Notch runs](https://github.com/J030104/interesting-notch/actions/workflows/interesting-notch.yml).
 
-To restart from a GitHub build, extract its ZIP and pass the app path and the full commit SHA shown on that run. The command checks the signature, commit, and file attachment control before quitting the running app.
+To restart from a GitHub build, extract its ZIP and pass the app path and the full commit SHA shown on that run. The command checks the signature, commit, and file attachment support before quitting the running app.
 
 ```bash
 bash scripts/interesting-notch-build.sh relaunch "/path/to/Interesting Notch.app" "<full commit SHA>"
