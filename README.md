@@ -1,6 +1,8 @@
-# Interesting Notch
+# interesting.notch
 
-Interesting Notch is a macOS companion for local Codex chats, built on [Boring Notch](https://github.com/TheBoredTeam/boring.notch). A blue line on the right of the notch flashes briefly every four seconds and is hidden between flashes. Reduce Motion turns off the flash.
+interesting.notch is a macOS companion for local Codex chats, built on [Boring Notch](https://github.com/TheBoredTeam/boring.notch). A blue line on the right of the notch flashes briefly every four seconds and is hidden between flashes. Reduce Motion turns off the flash.
+
+[Project website](https://j030104.github.io/interesting.notch/)
 
 ## Ask from the notch
 
@@ -18,21 +20,21 @@ Live updates cover chats running on the connected Codex server. When the default
 
 ### Shared Codex session
 
-The current macOS ChatGPT desktop app has an opt-in local daemon mode. When your current work is finished, quit ChatGPT, start the daemon with `codex app-server daemon start`, and launch ChatGPT with `open --env CODEX_APP_SERVER_USE_LOCAL_DAEMON=1 -a ChatGPT`. Open or reconnect Interesting Notch after the daemon starts. The panel shows **Shared Codex** when it connects to that daemon. This mode uses an experimental desktop launch setting.
+The current macOS ChatGPT desktop app has an opt-in local daemon mode. When your current work is finished, quit ChatGPT, start the daemon with `codex app-server daemon start`, and launch ChatGPT with `open --env CODEX_APP_SERVER_USE_LOCAL_DAEMON=1 -a ChatGPT`. Open or reconnect interesting.notch after the daemon starts. The panel shows **Shared Codex** when it connects to that daemon. This mode uses an experimental desktop launch setting.
 
 ## Build and settings
 
-Open `boringNotch.xcodeproj` in Xcode 26 or later and run the `boringNotch` scheme. The build product is **Interesting Notch.app**. Development builds are also available from successful [Build Interesting Notch runs](https://github.com/J030104/interesting-notch/actions/workflows/interesting-notch.yml).
+Open `boringNotch.xcodeproj` in Xcode 26 or later and run the `boringNotch` scheme. The build product is **interesting.notch.app**. Development builds are also available from successful [Build interesting.notch runs](https://github.com/J030104/interesting.notch/actions/workflows/interesting.notch.yml).
 
 To restart from a GitHub build, extract its ZIP and pass the app path and the full commit SHA shown on that run. The command checks the signature, commit, and file attachment support before quitting the running app.
 
 ```bash
-bash scripts/interesting-notch-build.sh relaunch "/path/to/Interesting Notch.app" "<full commit SHA>"
+bash scripts/interesting.notch-build.sh relaunch "/path/to/interesting.notch.app" "<full commit SHA>"
 ```
 
 The **Home** and **Shelf** tabs retain the inherited controls. Settings includes the shelf and Quick Share provider (including AirDrop), calendar, media, mirror, battery and HUD options. You can turn the line off in **Appearance** and choose the default tab in **Chats**. The collapsed music activity is off by default and can be enabled in **Media**.
 
-Interesting Notch inherits Boring Notch’s GPLv3 license and third-party notices. The notes below describe the upstream app.
+interesting.notch inherits Boring Notch’s GPLv3 license and third-party notices. The notes below describe the upstream app.
 
 ---
 

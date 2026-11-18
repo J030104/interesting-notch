@@ -80,7 +80,7 @@ final class CodexConnection {
 
         guard generation == self.generation else { throw CancellationError() }
         _ = try await request("initialize", [
-            "clientInfo": ["name": "interesting_notch", "title": "Interesting Notch", "version": "0.1.0"],
+            "clientInfo": ["name": "interesting_notch", "title": "interesting.notch", "version": "0.1.0"],
             "capabilities": ["optOutNotificationMethods": [
                 "item/reasoning/textDelta", "item/reasoning/summaryTextDelta", "item/commandExecution/outputDelta"
             ]]
@@ -111,7 +111,7 @@ final class CodexConnection {
     }
 
     func declineUnknownRequest(_ id: Any) {
-        try? send(["id": id, "error": ["code": -32601, "message": "This request is unavailable in Interesting Notch."]])
+        try? send(["id": id, "error": ["code": -32601, "message": "This request is unavailable in interesting.notch."]])
     }
 
     private func send(_ message: CodexJSON) throws {

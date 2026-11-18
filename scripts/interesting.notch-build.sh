@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# != 3 || ( "$1" != verify && "$1" != relaunch ) || ! "$3" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "Usage: bash $0 {verify|relaunch} /path/to/Interesting\ Notch.app <full Git commit>" >&2
+    echo "Usage: bash $0 {verify|relaunch} /path/to/interesting.notch.app <full Git commit>" >&2
     exit 2
 fi
 
@@ -29,7 +29,7 @@ if [[ "$revision" != "$expected_revision" ]]; then
     echo "Expected commit $expected_revision, found ${revision:-no commit recorded}." >&2
     exit 1
 fi
-echo "Verified Interesting Notch build $revision."
+echo "Verified interesting.notch build $revision."
 
 if [[ "$mode" == relaunch ]]; then
     osascript -l JavaScript -e '
@@ -52,7 +52,7 @@ if [[ "$mode" == relaunch ]]; then
         sleep 0.25
     done
     if [[ -n "$(running_app)" ]]; then
-        echo 'Interesting Notch did not quit.' >&2
+        echo 'interesting.notch did not quit.' >&2
         exit 1
     fi
     open "$app"

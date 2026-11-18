@@ -18,7 +18,7 @@ struct DynamicNotchApp: App {
     @Environment(\.openWindow) var openWindow
 
     var body: some Scene {
-        MenuBarExtra("Interesting Notch", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
+        MenuBarExtra("interesting.notch", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
             Button("Settings") {
                 DispatchQueue.main.async {
                     SettingsWindowController.shared.showWindow()
@@ -26,7 +26,7 @@ struct DynamicNotchApp: App {
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             Divider()
-            Button("Restart Interesting Notch") {
+            Button("Restart interesting.notch") {
                 ApplicationRelauncher.restart()
             }
             Button("Quit", role: .destructive) {
