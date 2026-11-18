@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Ask Codex questions, attach files, and follow local chats from your Mac’s notch.">
+  <link rel="canonical" href="https://j030104.github.io/interesting.notch/">
+  <title>interesting.notch</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font: 100%/1.6 system-ui, sans-serif;
+      background: #101116;
+      color: #f6f7fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100svh;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      padding: clamp(1.5rem, 6vw, 5rem);
+      background: radial-gradient(ellipse at 50% 0, #1a2541, transparent 60%);
+    }
+
+    main, footer { width: min(100%, 43rem); }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 8vw, 5rem);
+      line-height: 1.08;
+      letter-spacing: -.07em;
+      overflow-wrap: anywhere;
+    }
+
+    h1 span { color: #8db9ff; }
+
+    p { margin: 1rem 0; }
+    .summary { max-width: 34rem; color: #d0d8e9; font-size: 1.125rem; }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+      margin: 1.75rem 0 3rem;
+    }
+
+    a { color: #b4d0ff; text-underline-offset: .18em; }
+    a:focus-visible { outline: 2px solid #b4d0ff; outline-offset: 4px; }
+
+    nav a {
+      padding: .6rem 1rem;
+      border: 1px solid #657598;
+      border-radius: .6rem;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    nav a:first-child { background: #b4d0ff; border-color: #b4d0ff; color: #101116; }
+    nav a:hover { text-decoration: underline; }
+
+    footer {
+      border-top: 1px solid #3b4254;
+      color: #bfc9dd;
+      font-size: .9rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>interesting<span>.</span>notch</h1>
+    <p class="summary">Use Codex from your Mac’s notch. Ask a question, attach screenshots or files, and follow your local chats.</p>
+    <nav aria-label="Project links">
+      <a href="https://github.com/J030104/interesting.notch/actions/workflows/interesting.notch.yml">Development builds</a>
+      <a href="https://github.com/J030104/interesting.notch">Source and setup</a>
+    </nav>
+  </main>
+  <footer>
+    <p>Based on <a href="https://github.com/TheBoredTeam/boring.notch">boring.notch</a> by The Bored Team. <a href="https://github.com/J030104/interesting.notch/blob/main/LICENSE">GPLv3</a>.</p>
+  </footer>
+</body>
+</html>
